@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exoself Systems - Emergent Assembly</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: monospace;
+        }
+        
+        canvas {
+            display: block;
+        }
+        
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #00ff41;
+            font-size: 10px;
+            opacity: 0.5;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div id="info">ASSEMBLING...</div>
+    
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const info = document.getElementById('info');
+        
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        
+        // Color palette
+        const PALETTE = {
+            matrixGreen: '#00ff41', // Matrix green for boids when not carrying
+            trailWithPixel: '#ffffff',
+            trailEmpty: 'rgba(0, 255, 65, 0.2)',
+            textPixel: '#ffffff',
+            infinityPixel: '#ffffff' // Changed to white
+        };
+        
+        // Font definition for pixel art
+        const PIXEL_SIZE = 3;
+        const LETTER_SPACING = 1;
+        const WORD_SPACING = 3;
+        const LINE_SPACING = 2;
+        
+        const FONT = {
+            'E': [
+                [1,1,1,1],
+                [1,0,0,0],
+                [1,1,1,0],
+                [1,0,0,0],
+                [1,1,1,1]
+            ],
+            'X': [
+                [1,0,0,1],
+                [1,0,0,1],
+                [0,1,1,0],
+                [1,0,0,1],
+                [1,0,0,1]
+            ],
+            'O': [
+                [0,1,1,0],
+                [1,0,0,1],
+                [1,0,0,1],
+                [1,0,0,1],
+                [0,1,1,0]
+            ],
+            'S': [
+                [0,1,1,1],
+                [1,0,0,0],
+                [0,1,1,0],
+                [0,0,0,1],
+                [1,1,1,0]
+            ],
+            'E2': [
+                [1,1,1,1],
+                [1,0,0,0],
+                [1,1,1,0],
+                [1,0,0,0],
+                [1,1,1,1]
+            ],
+            'L': [
+                [1,0,0,0],
+                [1,0,0,0],
+                [1,0,0,0],
+                [1,0,0,0],
+                [1,1,1,1]
+            ],
+            'F': [
+                [1,1,1,1],
+                [1,0,0,0],
+                [1,1,1,0],
+                [1,0,0,0],
+                [1,0,0,0]
+            ],
+            'Y': [
+                [1,0,0,1],
+                [1,0,0,1],
+                [0,1,1,0],
+                [0,1,0,0],
+                [0,1,0,0]
+            ],
+            'T': [
+                [1,1,1,1,1],
+                [0,0,1,0,0],
+                [0,0,1,0,0],
+                [0,0,1,0,0],
+                [0,0,1,0,0]
+            ],
+            'M': [
+                [1,0,0,0,1],
+                [1,1,0,1,1],
+                [1,0,1,0,1],
+                [1,0,0,0,1],
+                [1,0,0,0,1]
+            ]
+        };
+        
+        // Infinity symbol pixels and attractor
+        let infinityPixels = [];
+        let infinityAttractor = {
+            x: 0,
+            y: 0,
+            t: 0, // Parameter for position along the curve
+            active: false
+        };
+        
+        function createInfinityPixels() {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2 - 50; // Moved closer to text
+            
+            infinityPixels = [];
+            
+            // Create a denser infinity symbol with more pixels
+            const scale = 30;
+            const steps = 100; // More steps for denser coverage
+            
+            // Use a set to track unique positions
+            const positions = new Set();
+            
+            // Main infinity loop
+            for (let i = 0; i < steps; i++) {
+                const t = (i / steps) * 2 * Math.PI;
+                
+                // Parametric equation for infinity/lemniscate
+                const x = scale * 2 * Math.cos(t) / (1 + Math.sin(t) * Math.sin(t));
+                const y = scale * Math.sin(t) * Math.cos(t) / (1 + Math.sin(t) * Math.sin(t));
+                
+                // Add main point
+                const pixX = Math.round(centerX + x);
+                const pixY = Math.round(centerY + y);
+                positions.add(`${pixX},${pixY}`);
+                
+                // Add neighboring pixels to thicken the line
+                for (let dx = -1; dx <= 1; dx++) {
+                    for (let dy = -1; dy <= 1; dy++) {
+                        positions.add(`${pixX + dx * 2},${pixY + dy * 2}`);
+                    }
+                }
+            }
+            
+            // Additional passes for even denser coverage
+            for (let pass = 0; pass < 3; pass++) {
+                const offset = pass * 0.1;
+                for (let i = 0; i < steps; i++) {
+                    const t = (i / steps) * 2 * Math.PI + offset;
+                    
+                    // Slightly varied parametric equations for thickness
+                    const scales = [
+                        {sx: 1.9, sy: 0.95},
+                        {sx: 2.0, sy: 1.0},
+                        {sx: 2.1, sy: 1.05}
+                    ];
+                    
+                    for (let s of scales) {
+                        const x = scale * s.sx * Math.cos(t) / (1 + Math.sin(t) * Math.sin(t));
+                        const y = scale * s.sy * Math.sin(t) * Math.cos(t) / (1 + Math.sin(t) * Math.sin(t));
+                        
+                        const pixX = Math.round(centerX + x);
+                        const pixY = Math.round(centerY + y);
+                        positions.add(`${pixX},${pixY}`);
+                        
+                        // Add some intermediate pixels
+                        if (i > 0) {
+                            const prevT = ((i - 1) / steps) * 2 * Math.PI + offset;
+                            const prevX = scale * s.sx * Math.cos(prevT) / (1 + Math.sin(prevT) * Math.sin(prevT));
+                            const prevY = scale * s.sy * Math.sin(prevT) * Math.cos(prevT) / (1 + Math.sin(prevT) * Math.sin(prevT));
+                            const prevPixX = Math.round(centerX + prevX);
+                            const prevPixY = Math.round(centerY + prevY);
+                            
+                            // Interpolate between points
+                            const interpSteps = 3;
+                            for (let j = 1; j < interpSteps; j++) {
+                                const interpX = Math.round(prevPixX + (pixX - prevPixX) * j / interpSteps);
+                                const interpY = Math.round(prevPixY + (pixY - prevPixY) * j / interpSteps);
+                                positions.add(`${interpX},${interpY}`);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Convert positions to pixels
+            let id = 0;
+            for (let pos of positions) {
+                const [x, y] = pos.split(',').map(Number);
+                infinityPixels.push({
+                    id: `inf_${id++}`,
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    targetX: x,
+                    targetY: y,
+                    originalTargetX: x,
+                    originalTargetY: y,
+                    placed: false,
+                    carried: false,
+                    color: PALETTE.infinityPixel,
+                    isInfinity: true
+                });
+            }
+            
+            return infinityPixels;
+        }
+        
+        function updateInfinityAttractor() {
+            if (!infinityAttractor.active) return;
+            
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2 - 50;
+            const scale = 30;
+            
+            // Update parameter t to move along the curve
+            infinityAttractor.t += 0.01; // Speed of movement along the curve
+            if (infinityAttractor.t > 2 * Math.PI) {
+                infinityAttractor.t -= 2 * Math.PI;
+            }
+            
+            // Calculate position using infinity parametric equation
+            const x = scale * 2 * Math.cos(infinityAttractor.t) / (1 + Math.sin(infinityAttractor.t) * Math.sin(infinityAttractor.t));
+            const y = scale * Math.sin(infinityAttractor.t) * Math.cos(infinityAttractor.t) / (1 + Math.sin(infinityAttractor.t) * Math.sin(infinityAttractor.t));
+            
+            infinityAttractor.x = centerX + x;
+            infinityAttractor.y = centerY + y;
+        }
+        
+        // Calculate text layout
+        function calculateTextLayout() {
+            const text1 = "EXOSELF";
+            const text2 = "SYSTEMS";
+            
+            let pixels = [];
+            let targetPositions = new Map();
+            
+            // Calculate total width for centering
+            let text1Width = 0;
+            let text2Width = 0;
+            
+            for (let char of text1) {
+                const letter = FONT[char] || FONT['E'];
+                text1Width += letter[0].length * PIXEL_SIZE + LETTER_SPACING * PIXEL_SIZE;
+            }
+            for (let char of text2) {
+                const letter = FONT[char] || FONT['E'];
+                text2Width += letter[0].length * PIXEL_SIZE + LETTER_SPACING * PIXEL_SIZE;
+            }
+            
+            // Starting positions (closer to infinity symbol)
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2 + 30; // Reduced spacing
+            const line1StartX = centerX - text1Width / 2;
+            const line2StartX = centerX - text2Width / 2;
+            const line1Y = centerY - 15;
+            const line2Y = centerY + 5;
+            
+            let pixelId = 0;
+            
+            // Create pixels for first line
+            let currentX = line1StartX;
+            for (let i = 0; i < text1.length; i++) {
+                const char = text1[i];
+                const letter = FONT[char === 'E' && i > 0 ? 'E2' : char] || FONT['E'];
+                
+                for (let y = 0; y < letter.length; y++) {
+                    for (let x = 0; x < letter[y].length; x++) {
+                        if (letter[y][x] === 1) {
+                            const targetX = currentX + x * PIXEL_SIZE;
+                            const targetY = line1Y + y * PIXEL_SIZE;
+                            
+                            const pixel = {
+                                id: pixelId++,
+                                x: Math.random() * canvas.width,
+                                y: Math.random() * canvas.height,
+                                targetX: targetX,
+                                targetY: targetY,
+                                placed: false,
+                                carried: false,
+                                color: PALETTE.textPixel,
+                                isInfinity: false
+                            };
+                            
+                            pixels.push(pixel);
+                            targetPositions.set(`${targetX},${targetY}`, pixel);
+                        }
+                    }
+                }
+                currentX += letter[0].length * PIXEL_SIZE + LETTER_SPACING * PIXEL_SIZE;
+            }
+            
+            // Create pixels for second line
+            currentX = line2StartX;
+            for (let i = 0; i < text2.length; i++) {
+                const char = text2[i];
+                const letter = FONT[char] || FONT['E'];
+                
+                for (let y = 0; y < letter.length; y++) {
+                    for (let x = 0; x < letter[y].length; x++) {
+                        if (letter[y][x] === 1) {
+                            const targetX = currentX + x * PIXEL_SIZE;
+                            const targetY = line2Y + y * PIXEL_SIZE;
+                            
+                            const pixel = {
+                                id: pixelId++,
+                                x: Math.random() * canvas.width,
+                                y: Math.random() * canvas.height,
+                                targetX: targetX,
+                                targetY: targetY,
+                                placed: false,
+                                carried: false,
+                                color: PALETTE.textPixel,
+                                isInfinity: false
+                            };
+                            
+                            pixels.push(pixel);
+                            targetPositions.set(`${targetX},${targetY}`, pixel);
+                        }
+                    }
+                }
+                currentX += letter[0].length * PIXEL_SIZE + LETTER_SPACING * PIXEL_SIZE;
+            }
+            
+            return { pixels, targetPositions };
+        }
+        
+        // Boid class
+        class Boid {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 2;
+                this.vy = (Math.random() - 0.5) * 2;
+                this.maxSpeed = 2 + Math.random() * 2;
+                this.maxForce = 0.05 + Math.random() * 0.05;
+                
+                // Randomized flocking parameters
+                this.separationWeight = 0.5 + Math.random() * 1.5;
+                this.alignmentWeight = 0.5 + Math.random() * 1.5;
+                this.cohesionWeight = 0.5 + Math.random() * 1.5;
+                
+                this.perceptionRadius = 30 + Math.random() * 50;
+                this.separationRadius = 15 + Math.random() * 15;
+                
+                this.carryingPixel = null;
+                this.trail = [];
+                this.maxTrailLength = 20;
+                
+                this.size = 3;
+                this.color = PALETTE.matrixGreen; // All boids are Matrix green
+            }
+            
+            flock(boids) {
+                let separation = this.separate(boids);
+                let alignment = this.align(boids);
+                let cohesion = this.cohere(boids);
+                
+                separation.mult(this.separationWeight);
+                alignment.mult(this.alignmentWeight);
+                cohesion.mult(this.cohesionWeight);
+                
+                this.applyForce(separation);
+                this.applyForce(alignment);
+                this.applyForce(cohesion);
+                
+                // Add infinity attractor force if active
+                if (infinityAttractor.active && !this.carryingPixel) {
+                    let attractorForce = this.seek(infinityAttractor.x, infinityAttractor.y);
+                    attractorForce.mult(10); // 10x more powerful than other forces
+                    this.applyForce(attractorForce);
+                }
+            }
+            
+            separate(boids) {
+                let steer = new Vector(0, 0);
+                let count = 0;
+                
+                for (let boid of boids) {
+                    let d = distance(this.x, this.y, boid.x, boid.y);
+                    if (d > 0 && d < this.separationRadius) {
+                        let diff = new Vector(this.x - boid.x, this.y - boid.y);
+                        diff.normalize();
+                        diff.div(d);
+                        steer.add(diff);
+                        count++;
+                    }
+                }
+                
+                if (count > 0) {
+                    steer.div(count);
+                    steer.normalize();
+                    steer.mult(this.maxSpeed);
+                    steer.sub(new Vector(this.vx, this.vy));
+                    steer.limit(this.maxForce);
+                }
+                
+                return steer;
+            }
+            
+            align(boids) {
+                let sum = new Vector(0, 0);
+                let count = 0;
+                
+                for (let boid of boids) {
+                    let d = distance(this.x, this.y, boid.x, boid.y);
+                    if (d > 0 && d < this.perceptionRadius) {
+                        sum.add(new Vector(boid.vx, boid.vy));
+                        count++;
+                    }
+                }
+                
+                if (count > 0) {
+                    sum.div(count);
+                    sum.normalize();
+                    sum.mult(this.maxSpeed);
+                    let steer = sum.sub(new Vector(this.vx, this.vy));
+                    steer.limit(this.maxForce);
+                    return steer;
+                }
+                
+                return new Vector(0, 0);
+            }
+            
+            cohere(boids) {
+                let sum = new Vector(0, 0);
+                let count = 0;
+                
+                for (let boid of boids) {
+                    let d = distance(this.x, this.y, boid.x, boid.y);
+                    if (d > 0 && d < this.perceptionRadius) {
+                        sum.add(new Vector(boid.x, boid.y));
+                        count++;
+                    }
+                }
+                
+                if (count > 0) {
+                    sum.div(count);
+                    return this.seek(sum.x, sum.y);
+                }
+                
+                return new Vector(0, 0);
+            }
+            
+            seek(targetX, targetY) {
+                let desired = new Vector(targetX - this.x, targetY - this.y);
+                desired.normalize();
+                desired.mult(this.maxSpeed);
+                let steer = desired.sub(new Vector(this.vx, this.vy));
+                steer.limit(this.maxForce);
+                return steer;
+            }
+            
+            applyForce(force) {
+                this.vx += force.x;
+                this.vy += force.y;
+            }
+            
+            checkPixelCollision(pixels) {
+                if (!this.carryingPixel) {
+                    for (let pixel of pixels) {
+                        if (!pixel.carried && !pixel.placed) {
+                            let d = distance(this.x, this.y, pixel.x, pixel.y);
+                            if (d < 10) {
+                                this.carryingPixel = pixel;
+                                pixel.carried = true;
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            update(pixels) {
+                // Store previous position for teleport detection
+                const prevX = this.x;
+                const prevY = this.y;
+                
+                // If carrying a pixel, move toward its target
+                if (this.carryingPixel) {
+                    let targetForce = this.seek(this.carryingPixel.targetX, this.carryingPixel.targetY);
+                    targetForce.mult(3); // Strong attraction to target
+                    this.applyForce(targetForce);
+                    
+                    // Update pixel position
+                    this.carryingPixel.x = this.x;
+                    this.carryingPixel.y = this.y;
+                    
+                    // Check if reached target
+                    let d = distance(this.x, this.y, this.carryingPixel.targetX, this.carryingPixel.targetY);
+                    if (d < 5) {
+                        this.carryingPixel.x = this.carryingPixel.targetX;
+                        this.carryingPixel.y = this.carryingPixel.targetY;
+                        this.carryingPixel.placed = true;
+                        this.carryingPixel.carried = false;
+                        this.carryingPixel = null;
+                    }
+                }
+                
+                // Limit speed
+                let speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                if (speed > this.maxSpeed) {
+                    this.vx = (this.vx / speed) * this.maxSpeed;
+                    this.vy = (this.vy / speed) * this.maxSpeed;
+                }
+                
+                // Update position
+                this.x += this.vx;
+                this.y += this.vy;
+                
+                // Wrap around edges and detect teleportation
+                let teleported = false;
+                if (this.x < 0) {
+                    this.x = canvas.width;
+                    teleported = true;
+                }
+                if (this.x > canvas.width) {
+                    this.x = 0;
+                    teleported = true;
+                }
+                if (this.y < 0) {
+                    this.y = canvas.height;
+                    teleported = true;
+                }
+                if (this.y > canvas.height) {
+                    this.y = 0;
+                    teleported = true;
+                }
+                
+                // Update trail (clear it if teleported to prevent streaks)
+                if (teleported) {
+                    this.trail = []; // Clear trail on teleport
+                } else {
+                    this.trail.push({ x: this.x, y: this.y });
+                    if (this.trail.length > this.maxTrailLength) {
+                        this.trail.shift();
+                    }
+                }
+            }
+            
+            draw(ctx) {
+                // Draw trail only if we have more than one point and didn't just teleport
+                if (this.trail.length > 1) {
+                    ctx.strokeStyle = this.carryingPixel ? PALETTE.trailWithPixel : PALETTE.trailEmpty;
+                    ctx.lineWidth = this.carryingPixel ? 2 : 1;
+                    ctx.globalAlpha = this.carryingPixel ? 0.6 : 0.2;
+                    ctx.beginPath();
+                    ctx.moveTo(this.trail[0].x, this.trail[0].y);
+                    
+                    // Check for large jumps in trail (another teleport check)
+                    let lastPoint = this.trail[0];
+                    for (let i = 1; i < this.trail.length; i++) {
+                        let point = this.trail[i];
+                        let dist = distance(lastPoint.x, lastPoint.y, point.x, point.y);
+                        
+                        // If distance is too large, it's a teleport - start new path
+                        if (dist > 50) {
+                            ctx.moveTo(point.x, point.y);
+                        } else {
+                            ctx.lineTo(point.x, point.y);
+                        }
+                        lastPoint = point;
+                    }
+                    
+                    ctx.stroke();
+                    ctx.globalAlpha = 1;
+                }
+                
+                // Draw boid
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(Math.atan2(this.vy, this.vx));
+                
+                if (this.carryingPixel) {
+                    ctx.fillStyle = this.carryingPixel.color;
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = this.carryingPixel.color;
+                } else {
+                    ctx.fillStyle = this.color;
+                    ctx.shadowBlur = 5;
+                    ctx.shadowColor = this.color;
+                }
+                
+                ctx.beginPath();
+                ctx.moveTo(this.size, 0);
+                ctx.lineTo(-this.size, -this.size/2);
+                ctx.lineTo(-this.size, this.size/2);
+                ctx.closePath();
+                ctx.fill();
+                
+                ctx.restore();
+            }
+        }
+        
+        // Vector helper class
+        class Vector {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+            }
+            
+            add(v) {
+                this.x += v.x;
+                this.y += v.y;
+                return this;
+            }
+            
+            sub(v) {
+                this.x -= v.x;
+                this.y -= v.y;
+                return this;
+            }
+            
+            mult(n) {
+                this.x *= n;
+                this.y *= n;
+                return this;
+            }
+            
+            div(n) {
+                this.x /= n;
+                this.y /= n;
+                return this;
+            }
+            
+            normalize() {
+                let mag = Math.sqrt(this.x * this.x + this.y * this.y);
+                if (mag > 0) {
+                    this.div(mag);
+                }
+                return this;
+            }
+            
+            limit(max) {
+                let mag = Math.sqrt(this.x * this.x + this.y * this.y);
+                if (mag > max) {
+                    this.normalize();
+                    this.mult(max);
+                }
+                return this;
+            }
+        }
+        
+        function distance(x1, y1, x2, y2) {
+            return Math.sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
+        }
+        
+        // Initialize
+        const infinitySymbolPixels = createInfinityPixels();
+        const { pixels: textPixels, targetPositions } = calculateTextLayout();
+        
+        // Combine all pixels
+        const allPixels = [...infinitySymbolPixels, ...textPixels];
+        
+        const boids = [];
+        const NUM_BOIDS = 80;
+        
+        for (let i = 0; i < NUM_BOIDS; i++) {
+            boids.push(new Boid(
+                Math.random() * canvas.width,
+                Math.random() * canvas.height
+            ));
+        }
+        
+        let placedCount = 0;
+        let frame = 0;
+        let assemblyComplete = false;
+        
+        // Animation loop
+        function animate() {
+            // Fade effect
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Update infinity attractor position
+            updateInfinityAttractor();
+            
+            // Update and draw all pixels
+            ctx.shadowBlur = 0;
+            for (let pixel of allPixels) {
+                if (!pixel.carried) {
+                    if (pixel.placed) {
+                        // All placed pixels are drawn at their target position (no pulsation)
+                        ctx.fillStyle = pixel.color;
+                        ctx.fillRect(pixel.targetX - PIXEL_SIZE/2, pixel.targetY - PIXEL_SIZE/2, PIXEL_SIZE, PIXEL_SIZE);
+                        
+                        // Occasional pulse effect for recently placed
+                        if (Math.random() < 0.01) {
+                            ctx.shadowBlur = 20;
+                            ctx.shadowColor = pixel.color;
+                            ctx.fillRect(pixel.targetX - PIXEL_SIZE/2, pixel.targetY - PIXEL_SIZE/2, PIXEL_SIZE, PIXEL_SIZE);
+                            ctx.shadowBlur = 0;
+                        }
+                    } else {
+                        // Scattered pixels waiting to be picked up - use their final color
+                        ctx.fillStyle = pixel.color;
+                        ctx.globalAlpha = 0.3 + Math.sin(frame * 0.05 + pixel.x) * 0.2;
+                        ctx.fillRect(pixel.x - 1, pixel.y - 1, 2, 2);
+                        ctx.globalAlpha = 1;
+                    }
+                }
+            }
+            
+            // Update and draw boids
+            for (let boid of boids) {
+                boid.flock(boids);
+                boid.checkPixelCollision(allPixels);
+                boid.update(allPixels);
+                boid.draw(ctx);
+            }
+            
+            // Count placed pixels
+            let currentPlaced = allPixels.filter(p => p.placed).length;
+            if (currentPlaced !== placedCount) {
+                placedCount = currentPlaced;
+                let progress = Math.floor((placedCount / allPixels.length) * 100);
+                
+                if (progress >= 100 && !assemblyComplete) {
+                    assemblyComplete = true;
+                    infinityAttractor.active = true; // Activate the infinity attractor
+                    info.textContent = 'EXOSELF SYSTEMS';
+                    info.style.opacity = 1;
+                    info.style.color = '#ffffff';
+                } else if (progress < 100) {
+                    info.textContent = `ASSEMBLING... ${progress}%`;
+                }
+            }
+            
+            frame++;
+            requestAnimationFrame(animate);
+        }
+        
+        // Handle resize
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+        
+        // Start animation
+        animate();
+    </script>
+</body>
+</html>
