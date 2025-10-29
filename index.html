@@ -40,8 +40,7 @@
         const ctx = canvas.getContext('2d');
         const info = document.getElementById('info');
         
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+        updateCanvasSize();
         
         // Color palette
         const PALETTE = {
@@ -57,6 +56,11 @@
         const LETTER_SPACING = 1;
         const WORD_SPACING = 3;
         const LINE_SPACING = 2;
+
+        const TEXT_LINES = [
+            { text: "EXOSELF", offsetY: -15 },
+            { text: "SYSTEMS", offsetY: 5 }
+        ];
         
         const FONT = {
             'E': [
@@ -130,230 +134,240 @@
                 [1,0,0,0,1]
             ]
         };
-        
+
+        function updateCanvasSize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        function measureTextLine(text) {
+            let width = 0;
+            for (let i = 0; i < text.length; i++) {
+                const char = text[i];
+                const key = char === 'E' && i > 0 ? 'E2' : char;
+                const letter = FONT[key] || FONT['E'];
+                width += letter[0].length * PIXEL_SIZE + LETTER_SPACING * PIXEL_SIZE;
+            }
+            return width;
+        }
+
+        function computeLayout() {
+            const width = canvas.width;
+            const height = canvas.height;
+            const centerX = width / 2;
+            const sceneCenterY = height / 2;
+            const textCenterY = sceneCenterY + 30;
+            const infinityScale = Math.max(20, Math.min(30, Math.min(width, height) * 0.04));
+            const textMetrics = TEXT_LINES.map((line, index) => {
+                const lineWidth = measureTextLine(line.text);
+                return {
+                    text: line.text,
+                    startX: centerX - lineWidth / 2,
+                    baseY: textCenterY + line.offsetY,
+                    index
+                };
+            });
+
+            return {
+                width,
+                height,
+                centerX,
+                sceneCenterY,
+                infinityCenterY: sceneCenterY - 50,
+                infinityScale,
+                textMetrics
+            };
+        }
+
+        function buildTextBlueprint() {
+            const blueprint = [];
+            let pixelId = 0;
+
+            TEXT_LINES.forEach((line, lineIndex) => {
+                let currentOffsetX = 0;
+                for (let i = 0; i < line.text.length; i++) {
+                    const char = line.text[i];
+                    const key = char === 'E' && i > 0 ? 'E2' : char;
+                    const letter = FONT[key] || FONT['E'];
+
+                    for (let y = 0; y < letter.length; y++) {
+                        for (let x = 0; x < letter[y].length; x++) {
+                            if (letter[y][x] === 1) {
+                                blueprint.push({
+                                    id: `text_${pixelId++}`,
+                                    kind: 'text',
+                                    lineIndex,
+                                    offsetX: currentOffsetX + x * PIXEL_SIZE,
+                                    offsetY: y * PIXEL_SIZE,
+                                    color: PALETTE.textPixel
+                                });
+                            }
+                        }
+                    }
+
+                    currentOffsetX += letter[0].length * PIXEL_SIZE + LETTER_SPACING * PIXEL_SIZE;
+                }
+            });
+
+            return blueprint;
+        }
+
         // Infinity symbol pixels and attractor
         let infinityPixels = [];
-        let infinityAttractor = {
+        let infinityBlueprint = [];
+        const infinityAttractor = {
             x: 0,
             y: 0,
             t: 0, // Parameter for position along the curve
-            active: false
+            speed: 0.01,
+            active: false,
+            velocity: { x: 0, y: 0 }
         };
+
+        let textBlueprint = [];
+        let textPixels = [];
+        let layout = null;
+        let previousLayout = null;
+        let allPixels = [];
+        let placedCount = 0;
+        let frame = 0;
+        let assemblyComplete = false;
         
-        function createInfinityPixels() {
-            const centerX = canvas.width / 2;
-            const centerY = canvas.height / 2 - 50; // Moved closer to text
-            
-            infinityPixels = [];
-            
-            // Create a denser infinity symbol with more pixels
-            const scale = 30;
-            const steps = 100; // More steps for denser coverage
-            
-            // Use a set to track unique positions
-            const positions = new Set();
-            
-            // Main infinity loop
+        function buildInfinityBlueprint(currentLayout) {
+            const { centerX, infinityCenterY, infinityScale } = currentLayout;
+            const positions = new Map();
+            let id = 0;
+
+            const scale = infinityScale;
+            const steps = 100;
+
+            function addPosition(x, y) {
+                const key = `${x},${y}`;
+                if (!positions.has(key)) {
+                    positions.set(key, {
+                        id: `inf_${id++}`,
+                        kind: 'infinity',
+                        normalizedX: (x - centerX) / scale,
+                        normalizedY: (y - infinityCenterY) / scale,
+                        color: PALETTE.infinityPixel
+                    });
+                }
+            }
+
             for (let i = 0; i < steps; i++) {
                 const t = (i / steps) * 2 * Math.PI;
-                
-                // Parametric equation for infinity/lemniscate
                 const x = scale * 2 * Math.cos(t) / (1 + Math.sin(t) * Math.sin(t));
                 const y = scale * Math.sin(t) * Math.cos(t) / (1 + Math.sin(t) * Math.sin(t));
-                
-                // Add main point
                 const pixX = Math.round(centerX + x);
-                const pixY = Math.round(centerY + y);
-                positions.add(`${pixX},${pixY}`);
-                
-                // Add neighboring pixels to thicken the line
+                const pixY = Math.round(infinityCenterY + y);
+                addPosition(pixX, pixY);
+
                 for (let dx = -1; dx <= 1; dx++) {
                     for (let dy = -1; dy <= 1; dy++) {
-                        positions.add(`${pixX + dx * 2},${pixY + dy * 2}`);
+                        addPosition(pixX + dx * 2, pixY + dy * 2);
                     }
                 }
             }
-            
-            // Additional passes for even denser coverage
+
             for (let pass = 0; pass < 3; pass++) {
                 const offset = pass * 0.1;
                 for (let i = 0; i < steps; i++) {
                     const t = (i / steps) * 2 * Math.PI + offset;
-                    
-                    // Slightly varied parametric equations for thickness
                     const scales = [
-                        {sx: 1.9, sy: 0.95},
-                        {sx: 2.0, sy: 1.0},
-                        {sx: 2.1, sy: 1.05}
+                        { sx: 1.9, sy: 0.95 },
+                        { sx: 2.0, sy: 1.0 },
+                        { sx: 2.1, sy: 1.05 }
                     ];
-                    
+
                     for (let s of scales) {
                         const x = scale * s.sx * Math.cos(t) / (1 + Math.sin(t) * Math.sin(t));
                         const y = scale * s.sy * Math.sin(t) * Math.cos(t) / (1 + Math.sin(t) * Math.sin(t));
-                        
                         const pixX = Math.round(centerX + x);
-                        const pixY = Math.round(centerY + y);
-                        positions.add(`${pixX},${pixY}`);
-                        
-                        // Add some intermediate pixels
+                        const pixY = Math.round(infinityCenterY + y);
+                        addPosition(pixX, pixY);
+
                         if (i > 0) {
                             const prevT = ((i - 1) / steps) * 2 * Math.PI + offset;
                             const prevX = scale * s.sx * Math.cos(prevT) / (1 + Math.sin(prevT) * Math.sin(prevT));
                             const prevY = scale * s.sy * Math.sin(prevT) * Math.cos(prevT) / (1 + Math.sin(prevT) * Math.sin(prevT));
                             const prevPixX = Math.round(centerX + prevX);
-                            const prevPixY = Math.round(centerY + prevY);
-                            
-                            // Interpolate between points
+                            const prevPixY = Math.round(infinityCenterY + prevY);
+
                             const interpSteps = 3;
                             for (let j = 1; j < interpSteps; j++) {
                                 const interpX = Math.round(prevPixX + (pixX - prevPixX) * j / interpSteps);
                                 const interpY = Math.round(prevPixY + (pixY - prevPixY) * j / interpSteps);
-                                positions.add(`${interpX},${interpY}`);
+                                addPosition(interpX, interpY);
                             }
                         }
                     }
                 }
             }
-            
-            // Convert positions to pixels
-            let id = 0;
-            for (let pos of positions) {
-                const [x, y] = pos.split(',').map(Number);
-                infinityPixels.push({
-                    id: `inf_${id++}`,
-                    x: Math.random() * canvas.width,
-                    y: Math.random() * canvas.height,
-                    targetX: x,
-                    targetY: y,
-                    originalTargetX: x,
-                    originalTargetY: y,
-                    placed: false,
-                    carried: false,
-                    color: PALETTE.infinityPixel,
-                    isInfinity: true
-                });
-            }
-            
-            return infinityPixels;
+
+            return Array.from(positions.values());
         }
         
         function updateInfinityAttractor() {
             if (!infinityAttractor.active) return;
-            
-            const centerX = canvas.width / 2;
-            const centerY = canvas.height / 2 - 50;
-            const scale = 30;
-            
-            // Update parameter t to move along the curve
-            infinityAttractor.t += 0.01; // Speed of movement along the curve
+
+            const prevX = infinityAttractor.x;
+            const prevY = infinityAttractor.y;
+
+            infinityAttractor.t += infinityAttractor.speed;
             if (infinityAttractor.t > 2 * Math.PI) {
                 infinityAttractor.t -= 2 * Math.PI;
             }
-            
-            // Calculate position using infinity parametric equation
-            const x = scale * 2 * Math.cos(infinityAttractor.t) / (1 + Math.sin(infinityAttractor.t) * Math.sin(infinityAttractor.t));
-            const y = scale * Math.sin(infinityAttractor.t) * Math.cos(infinityAttractor.t) / (1 + Math.sin(infinityAttractor.t) * Math.sin(infinityAttractor.t));
-            
-            infinityAttractor.x = centerX + x;
-            infinityAttractor.y = centerY + y;
+
+            refreshInfinityAttractorPosition(layout);
+
+            infinityAttractor.velocity.x = infinityAttractor.x - prevX;
+            infinityAttractor.velocity.y = infinityAttractor.y - prevY;
+            const vx = infinityAttractor.velocity.x;
+            const vy = infinityAttractor.velocity.y;
+            infinityAttractor.velocity.magnitude = Math.sqrt(vx * vx + vy * vy);
         }
         
-        // Calculate text layout
-        function calculateTextLayout() {
-            const text1 = "EXOSELF";
-            const text2 = "SYSTEMS";
-            
-            let pixels = [];
-            let targetPositions = new Map();
-            
-            // Calculate total width for centering
-            let text1Width = 0;
-            let text2Width = 0;
-            
-            for (let char of text1) {
-                const letter = FONT[char] || FONT['E'];
-                text1Width += letter[0].length * PIXEL_SIZE + LETTER_SPACING * PIXEL_SIZE;
-            }
-            for (let char of text2) {
-                const letter = FONT[char] || FONT['E'];
-                text2Width += letter[0].length * PIXEL_SIZE + LETTER_SPACING * PIXEL_SIZE;
-            }
-            
-            // Starting positions (closer to infinity symbol)
-            const centerX = canvas.width / 2;
-            const centerY = canvas.height / 2 + 30; // Reduced spacing
-            const line1StartX = centerX - text1Width / 2;
-            const line2StartX = centerX - text2Width / 2;
-            const line1Y = centerY - 15;
-            const line2Y = centerY + 5;
-            
-            let pixelId = 0;
-            
-            // Create pixels for first line
-            let currentX = line1StartX;
-            for (let i = 0; i < text1.length; i++) {
-                const char = text1[i];
-                const letter = FONT[char === 'E' && i > 0 ? 'E2' : char] || FONT['E'];
-                
-                for (let y = 0; y < letter.length; y++) {
-                    for (let x = 0; x < letter[y].length; x++) {
-                        if (letter[y][x] === 1) {
-                            const targetX = currentX + x * PIXEL_SIZE;
-                            const targetY = line1Y + y * PIXEL_SIZE;
-                            
-                            const pixel = {
-                                id: pixelId++,
-                                x: Math.random() * canvas.width,
-                                y: Math.random() * canvas.height,
-                                targetX: targetX,
-                                targetY: targetY,
-                                placed: false,
-                                carried: false,
-                                color: PALETTE.textPixel,
-                                isInfinity: false
-                            };
-                            
-                            pixels.push(pixel);
-                            targetPositions.set(`${targetX},${targetY}`, pixel);
-                        }
-                    }
+        function instantiatePixels(blueprint) {
+            return blueprint.map(item => {
+                const pixel = {
+                    id: item.id,
+                    blueprint: item,
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    targetX: 0,
+                    targetY: 0,
+                    renderX: undefined,
+                    renderY: undefined,
+                    placed: false,
+                    carried: false,
+                    color: item.color,
+                    isInfinity: item.kind === 'infinity'
+                };
+                return pixel;
+            });
+        }
+
+        function assignTargetsForPixels(pixels, currentLayout) {
+            for (let pixel of pixels) {
+                if (pixel.blueprint.kind === 'infinity') {
+                    pixel.targetX = currentLayout.centerX + pixel.blueprint.normalizedX * currentLayout.infinityScale;
+                    pixel.targetY = currentLayout.infinityCenterY + pixel.blueprint.normalizedY * currentLayout.infinityScale;
+                } else if (pixel.blueprint.kind === 'text') {
+                    const lineMetrics = currentLayout.textMetrics[pixel.blueprint.lineIndex];
+                    pixel.targetX = lineMetrics.startX + pixel.blueprint.offsetX;
+                    pixel.targetY = lineMetrics.baseY + pixel.blueprint.offsetY;
                 }
-                currentX += letter[0].length * PIXEL_SIZE + LETTER_SPACING * PIXEL_SIZE;
-            }
-            
-            // Create pixels for second line
-            currentX = line2StartX;
-            for (let i = 0; i < text2.length; i++) {
-                const char = text2[i];
-                const letter = FONT[char] || FONT['E'];
-                
-                for (let y = 0; y < letter.length; y++) {
-                    for (let x = 0; x < letter[y].length; x++) {
-                        if (letter[y][x] === 1) {
-                            const targetX = currentX + x * PIXEL_SIZE;
-                            const targetY = line2Y + y * PIXEL_SIZE;
-                            
-                            const pixel = {
-                                id: pixelId++,
-                                x: Math.random() * canvas.width,
-                                y: Math.random() * canvas.height,
-                                targetX: targetX,
-                                targetY: targetY,
-                                placed: false,
-                                carried: false,
-                                color: PALETTE.textPixel,
-                                isInfinity: false
-                            };
-                            
-                            pixels.push(pixel);
-                            targetPositions.set(`${targetX},${targetY}`, pixel);
-                        }
-                    }
+
+                if (pixel.renderX === undefined || pixel.renderY === undefined) {
+                    pixel.renderX = pixel.targetX;
+                    pixel.renderY = pixel.targetY;
                 }
-                currentX += letter[0].length * PIXEL_SIZE + LETTER_SPACING * PIXEL_SIZE;
+
+                if (pixel.placed) {
+                    pixel.x = pixel.targetX;
+                    pixel.y = pixel.targetY;
+                }
             }
-            
-            return { pixels, targetPositions };
         }
         
         // Boid class
@@ -364,6 +378,7 @@
                 this.vx = (Math.random() - 0.5) * 2;
                 this.vy = (Math.random() - 0.5) * 2;
                 this.maxSpeed = 2 + Math.random() * 2;
+                this.baseMaxSpeed = this.maxSpeed;
                 this.maxForce = 0.05 + Math.random() * 0.05;
                 
                 // Randomized flocking parameters
@@ -398,7 +413,7 @@
                 // Add infinity attractor force if active
                 if (infinityAttractor.active && !this.carryingPixel) {
                     let attractorForce = this.seek(infinityAttractor.x, infinityAttractor.y);
-                    attractorForce.mult(10); // 10x more powerful than other forces
+                    attractorForce.mult(2); // 2x more powerful than other forces
                     this.applyForce(attractorForce);
                 }
             }
@@ -524,6 +539,8 @@
                         this.carryingPixel.y = this.carryingPixel.targetY;
                         this.carryingPixel.placed = true;
                         this.carryingPixel.carried = false;
+                        this.carryingPixel.renderX = this.carryingPixel.targetX;
+                        this.carryingPixel.renderY = this.carryingPixel.targetY;
                         this.carryingPixel = null;
                     }
                 }
@@ -676,12 +693,81 @@
             return Math.sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
         }
         
-        // Initialize
-        const infinitySymbolPixels = createInfinityPixels();
-        const { pixels: textPixels, targetPositions } = calculateTextLayout();
-        
-        // Combine all pixels
-        const allPixels = [...infinitySymbolPixels, ...textPixels];
+        function refreshInfinityAttractorPosition(currentLayout) {
+            const { centerX, infinityCenterY, infinityScale } = currentLayout;
+            const t = infinityAttractor.t;
+            const denominator = 1 + Math.sin(t) * Math.sin(t);
+            const x = infinityScale * 2 * Math.cos(t) / denominator;
+            const y = infinityScale * Math.sin(t) * Math.cos(t) / denominator;
+            infinityAttractor.x = centerX + x;
+            infinityAttractor.y = infinityCenterY + y;
+        }
+
+        function initializeScene() {
+            updateCanvasSize();
+            layout = computeLayout();
+            textBlueprint = buildTextBlueprint();
+            infinityBlueprint = buildInfinityBlueprint(layout);
+            infinityPixels = instantiatePixels(infinityBlueprint);
+            textPixels = instantiatePixels(textBlueprint);
+            allPixels = [...infinityPixels, ...textPixels];
+            assignTargetsForPixels(allPixels, layout);
+            previousLayout = { ...layout };
+            refreshInfinityAttractorPosition(layout);
+        }
+
+        initializeScene();
+
+        function handleResize() {
+            const prevLayout = layout ? { ...layout } : null;
+
+            updateCanvasSize();
+            layout = computeLayout();
+            assignTargetsForPixels(allPixels, layout);
+
+            if (prevLayout) {
+                const widthRatio = prevLayout.width ? layout.width / prevLayout.width : 1;
+                const heightRatio = prevLayout.height ? layout.height / prevLayout.height : 1;
+
+                allPixels.forEach(pixel => {
+                    if (!pixel.placed && !pixel.carried) {
+                        pixel.x *= widthRatio;
+                        pixel.y *= heightRatio;
+                        pixel.x = Math.max(0, Math.min(layout.width, pixel.x));
+                        pixel.y = Math.max(0, Math.min(layout.height, pixel.y));
+                    }
+                });
+
+                boids.forEach(boid => {
+                    boid.x *= widthRatio;
+                    boid.y *= heightRatio;
+                    boid.x = Math.max(0, Math.min(layout.width, boid.x));
+                    boid.y = Math.max(0, Math.min(layout.height, boid.y));
+                    boid.trail = boid.trail.map(point => ({
+                        x: point.x * widthRatio,
+                        y: point.y * heightRatio
+                    }));
+
+                    if (boid.carryingPixel) {
+                        boid.carryingPixel.x = boid.x;
+                        boid.carryingPixel.y = boid.y;
+                    }
+                });
+            }
+
+            refreshInfinityAttractorPosition(layout);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (assemblyComplete) {
+                const estimated = infinityAttractor.velocity.magnitude !== undefined
+                    ? infinityAttractor.velocity.magnitude
+                    : infinityAttractor.speed * layout.infinityScale * 0.5;
+                const attractorSpeed = Math.min(Math.max(estimated, 0.4), 6);
+                boids.forEach(boid => {
+                    boid.maxSpeed = attractorSpeed;
+                });
+            }
+            previousLayout = { ...layout };
+        }
         
         const boids = [];
         const NUM_BOIDS = 80;
@@ -692,11 +778,6 @@
                 Math.random() * canvas.height
             ));
         }
-        
-        let placedCount = 0;
-        let frame = 0;
-        let assemblyComplete = false;
-        
         // Animation loop
         function animate() {
             // Fade effect
@@ -705,25 +786,32 @@
             
             // Update infinity attractor position
             updateInfinityAttractor();
+
+            if (assemblyComplete && infinityAttractor.velocity.magnitude !== undefined) {
+                const attractorSpeed = Math.min(Math.max(infinityAttractor.velocity.magnitude, 0.4), 6);
+                for (let boid of boids) {
+                    boid.maxSpeed = attractorSpeed;
+                }
+            }
             
             // Update and draw all pixels
             ctx.shadowBlur = 0;
             for (let pixel of allPixels) {
                 if (!pixel.carried) {
                     if (pixel.placed) {
-                        // All placed pixels are drawn at their target position (no pulsation)
+                        pixel.renderX += (pixel.targetX - pixel.renderX) * 0.12;
+                        pixel.renderY += (pixel.targetY - pixel.renderY) * 0.12;
+
                         ctx.fillStyle = pixel.color;
-                        ctx.fillRect(pixel.targetX - PIXEL_SIZE/2, pixel.targetY - PIXEL_SIZE/2, PIXEL_SIZE, PIXEL_SIZE);
-                        
-                        // Occasional pulse effect for recently placed
+                        ctx.fillRect(pixel.renderX - PIXEL_SIZE / 2, pixel.renderY - PIXEL_SIZE / 2, PIXEL_SIZE, PIXEL_SIZE);
+
                         if (Math.random() < 0.01) {
                             ctx.shadowBlur = 20;
                             ctx.shadowColor = pixel.color;
-                            ctx.fillRect(pixel.targetX - PIXEL_SIZE/2, pixel.targetY - PIXEL_SIZE/2, PIXEL_SIZE, PIXEL_SIZE);
+                            ctx.fillRect(pixel.renderX - PIXEL_SIZE / 2, pixel.renderY - PIXEL_SIZE / 2, PIXEL_SIZE, PIXEL_SIZE);
                             ctx.shadowBlur = 0;
                         }
                     } else {
-                        // Scattered pixels waiting to be picked up - use their final color
                         ctx.fillStyle = pixel.color;
                         ctx.globalAlpha = 0.3 + Math.sin(frame * 0.05 + pixel.x) * 0.2;
                         ctx.fillRect(pixel.x - 1, pixel.y - 1, 2, 2);
@@ -762,9 +850,12 @@
         }
         
         // Handle resize
+        let resizeTimer = null;
         window.addEventListener('resize', () => {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                handleResize();
+            }, 150);
         });
         
         // Start animation
