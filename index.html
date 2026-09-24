@@ -3,37 +3,121 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Exoself Systems - Emergent Assembly</title>
+    <title>Exoself Systems, LLC | Software & Digital Experiences</title>
+    <meta name="description" content="Exoself Systems, LLC is a software company developing digital products and experiences. Learn about Worlds With You and contact our team.">
+    <meta name="theme-color" content="#080d0a">
     <style>
+        * { box-sizing: border-box; }
+        html { background: #080d0a; }
         body {
             margin: 0;
-            padding: 0;
-            background: #000;
-            overflow: hidden;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            font-family: monospace;
+            min-height: 100vh;
+            min-height: 100svh;
+            color: #f2f5f2;
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
-        
         canvas {
+            position: fixed;
+            inset: 0;
             display: block;
+            z-index: 0;
+            pointer-events: none;
         }
-        
         #info {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            color: #00ff41;
-            font-size: 10px;
-            opacity: 0.5;
+            position: fixed;
+            top: 18px;
+            right: 20px;
+            color: #8cbd98;
+            font: 11px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+            letter-spacing: .08em;
+            z-index: 2;
+        }
+        main {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            min-height: 100vh;
+            min-height: 100svh;
+            padding: 56px clamp(20px, 5vw, 88px);
+        }
+        .card {
+            width: min(100%, 490px);
+            padding: clamp(28px, 4vw, 48px);
+            background: rgba(8, 13, 10, .94);
+            border: 1px solid #294a32;
+            box-shadow: 0 24px 72px rgba(0, 0, 0, .5);
+        }
+        .eyebrow, .label {
+            color: #86d39a;
+            font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+            letter-spacing: .1em;
+            text-transform: uppercase;
+        }
+        h1 {
+            margin: 16px 0 20px;
+            font-size: clamp(36px, 6vw, 58px);
+            line-height: 1.04;
+            letter-spacing: -.045em;
+        }
+        .intro {
+            margin: 0;
+            color: #c6d4c9;
+            font-size: 17px;
+            line-height: 1.65;
+        }
+        section {
+            margin-top: 32px;
+            padding-top: 26px;
+            border-top: 1px solid #294a32;
+        }
+        h2 { margin: 7px 0 10px; font-size: 22px; letter-spacing: -.02em; }
+        section p, address {
+            margin: 0;
+            color: #c6d4c9;
+            line-height: 1.65;
+            font-size: 15px;
+            font-style: normal;
+        }
+        a { color: #9de9ae; text-underline-offset: 4px; }
+        a:hover { color: #fff; }
+        a:focus-visible { outline: 2px solid #9de9ae; outline-offset: 4px; }
+        .project-link { display: inline-block; margin-top: 14px; font-weight: 600; }
+        .contact-line { margin-top: 12px; }
+        .contact-line a { overflow-wrap: anywhere; }
+        @media (max-width: 680px) {
+            main { align-items: flex-start; padding: 64px 16px 28px; }
+            .card { width: 100%; padding: 28px 24px; }
+            #info { top: 15px; right: 16px; font-size: 10px; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            canvas, #info { display: none; }
         }
     </style>
 </head>
 <body>
-    <canvas id="canvas"></canvas>
-    <div id="info">ASSEMBLING...</div>
+    <canvas id="canvas" aria-hidden="true"></canvas>
+    <div id="info" aria-hidden="true">ASSEMBLING...</div>
+    <main>
+        <div class="card">
+            <p class="eyebrow">Independent software studio</p>
+            <h1>Exoself Systems, LLC</h1>
+            <p class="intro">We build software and digital experiences. Explore what we're working on and get in touch.</p>
+            <section aria-labelledby="project-title">
+                <span class="label">Current project</span>
+                <h2 id="project-title">Worlds With You</h2>
+                <p>A project in development by Exoself Systems, LLC.</p>
+                <a class="project-link" href="https://worldswithyou.com/">Visit Worlds With You &rarr;</a>
+            </section>
+            <section aria-labelledby="contact-title">
+                <span class="label">Company information</span>
+                <h2 id="contact-title">Contact</h2>
+                <p>Email us at <a href="mailto:info@exoselfsystems.com">info@exoselfsystems.com</a>.</p>
+                <p class="contact-line">Business mailing address:</p>
+                <address>Exoself Systems, LLC<br>2108 N St #14933<br>Sacramento, CA 95816</address>
+            </section>
+        </div>
+    </main>
     
     <script>
         const canvas = document.getElementById('canvas');
@@ -858,8 +942,10 @@
             }, 150);
         });
         
-        // Start animation
-        animate();
+        // Start animation unless the visitor requests reduced motion.
+        if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            animate();
+        }
     </script>
 </body>
 </html>
